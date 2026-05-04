@@ -21,32 +21,21 @@ def download_video(url):
     return video_path, title, duration
 
 def get_transcript(url):
-    """Get video transcript/description"""
+    """Get video description"""
     ydl_opts = {
         'skip_download': True,
-        'writesubtitles': True,
-        'writeautomaticsub': True,
         'quiet': True,
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
-        
-        # Try to get subtitles first
-        if info.get('subtitles') or info.get('automatic_captions'):
-            subs = info.get('subtitles', {}).get('en') or info.get('automatic_captions', {}).get('en')
-            if subs:
-                return f"Title: {info.get('title')}\nDescription: {info.get('description', '')[:500]}"
-        
-        # Fallback to description
-        description = info.get('description', 'No description available')
+        description = info.get('description', 'No description')
         title = info.get('title', '')
-        return f"Title: {title}\n\nDescription: {description}"
+        return f"Title: {title}\n\nDescription: {description[:1000]}"
 
 def cut_video(video_path, clips_data):
     """Cut video into clips using ffmpeg"""
     try:
-        # Parse JSON if it's a string
         if isinstance(clips_data, str):
             clips_data = clips_data.strip()
             if clips_data.startswith('```'):
@@ -55,6 +44,9 @@ def cut_video(video_path, clips_data):
         
         clips = []
         os.makedirs('output/videos', exist_ok=True)
+        
+        # Use ./ffmpeg if exists, otherwise system ffmpeg
+        ffmpeg_cmd = './ffmpeg' if os.path.exists('./ffmpeg') else 'ffmpeg'
         
         for i, clip in enumerate(clips_data, 1):
             start = clip.get('start', 0)
@@ -67,9 +59,8 @@ def cut_video(video_path, clips_data):
             
             print(f"Creating clip {i}: {start}s to {end}s - {title}")
             
-            # Use ffmpeg command
             cmd = [
-                'ffmpeg', '-y',
+                ffmpeg_cmd, '-y',
                 '-ss', str(start),
                 '-i', video_path,
                 '-t', str(duration),
@@ -77,22 +68,15 @@ def cut_video(video_path, clips_data):
                 output_file
             ]
             
-            try:
-                subprocess.run(cmd, check=True, capture_output=True)
-                clips.append({
-                    'file': output_file,
-                    'title': title,
-                    'reason': reason
-                })
-            except subprocess.CalledProcessError as e:
-                print(f"Error creating clip {i}: {e}")
-                continue
+            subprocess.run(cmd, check=True, capture_output=True)
+            clips.append({
+                'file': output_file,
+                'title': title,
+                'reason': reason
+            })
         
         return clips
         
-    except json.JSONDecodeError as e:
-        print(f"JSON parse error: {e}")
-        return []
     except Exception as e:
-        print(f"Error cutting video: {e}")
+        print(f"Error: {e}")
         return []
