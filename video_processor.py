@@ -1,128 +1,98 @@
 import yt_dlp
 import os
-from moviepy.editor import VideoFileClip
 import json
 import re
+import subprocess
 
-def download_video(url, output_path="temp"):
-    """Download YouTube video"""
-    os.makedirs(output_path, exist_ok=True)
-    
+def download_video(url):
+    """Download video from YouTube"""
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': f'{output_path}/video.mp4',
+        'format': 'best[ext=mp4]',
+        'outtmpl': 'temp/video.%(ext)s',
         'quiet': True,
-        'no_warnings': True,
-        'merge_output_format': 'mp4',
-        'postprocessors': [{
-            'key': 'FFmpegVideoConvertor',
-            'preferedformat': 'mp4',
-        }],
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        title = info.get('title', 'Video')
+        video_path = 'temp/video.mp4'
+        title = info.get('title', 'video')
         duration = info.get('duration', 0)
         
-    return f'{output_path}/video.mp4', title, duration
+    return video_path, title, duration
 
 def get_transcript(url):
-    """Extract transcript from YouTube video"""
+    """Get video transcript/description"""
     ydl_opts = {
         'skip_download': True,
         'writesubtitles': True,
         'writeautomaticsub': True,
-        'subtitleslangs': ['en'],
         'quiet': True,
     }
     
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-            description = info.get('description', '')
-            title = info.get('title', '')
-            
-            transcript = f"Video Title: {title}\n\nDescription: {description}"
-            
-            return transcript[:3000]
-    except Exception as e:
-        return f"Could not extract transcript. Error: {str(e)}"
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        
+        # Try to get subtitles first
+        if info.get('subtitles') or info.get('automatic_captions'):
+            subs = info.get('subtitles', {}).get('en') or info.get('automatic_captions', {}).get('en')
+            if subs:
+                return f"Title: {info.get('title')}\nDescription: {info.get('description', '')[:500]}"
+        
+        # Fallback to description
+        description = info.get('description', 'No description available')
+        title = info.get('title', '')
+        return f"Title: {title}\n\nDescription: {description}"
 
-def cut_video(video_path, clips_data, output_dir="output/videos"):
-    """Cut video into clips based on timestamps"""
-    os.makedirs(output_dir, exist_ok=True)
-    
-    video = VideoFileClip(video_path)
-    generated_clips = []
-    
+def cut_video(video_path, clips_data):
+    """Cut video into clips using ffmpeg"""
     try:
-        # Handle both string and already-parsed data
+        # Parse JSON if it's a string
         if isinstance(clips_data, str):
             clips_data = clips_data.strip()
-            # Remove markdown code blocks if present
-            if '```json' in clips_data:
-                clips_data = clips_data.split('```json').split('```')[1]
-            elif '```' in clips_data:
-                clips_data = clips_data.split('```')[1].split('```')[0]
+            if clips_data.startswith('```'):
+                clips_data = re.sub(r'```json?\s*|\s*```', '', clips_data)
+            clips_data = json.loads(clips_data)
+        
+        clips = []
+        os.makedirs('output/videos', exist_ok=True)
+        
+        for i, clip in enumerate(clips_data, 1):
+            start = clip.get('start', 0)
+            end = clip.get('end', 30)
+            title = clip.get('title', f'Clip {i}')
+            reason = clip.get('reason', '')
             
-            clips = json.loads(clips_data)
-        else:
-            clips = clips_data
-        
-        # Ensure clips is a list
-        if not isinstance(clips, list):
-            print(f"Expected list, got: {type(clips)}")
-            return generated_clips
-        
-        for i, clip in enumerate(clips[:5], 1):
+            duration = end - start
+            output_file = f'output/videos/clip_{i}.mp4'
+            
+            print(f"Creating clip {i}: {start}s to {end}s - {title}")
+            
+            # Use ffmpeg command
+            cmd = [
+                'ffmpeg', '-y',
+                '-ss', str(start),
+                '-i', video_path,
+                '-t', str(duration),
+                '-c', 'copy',
+                output_file
+            ]
+            
             try:
-                start = int(clip['start'])
-                end = int(clip['end'])
-                title = clip.get('title', f'Clip_{i}')
-                
-                # Validate timestamps
-                if start < 0 or end <= start:
-                    print(f"Skipping invalid timestamps: start={start}, end={end}")
-                    continue
-                
-                if end > video.duration:
-                    end = int(video.duration)
-                
-                # Clean title for filename
-                safe_title = re.sub(r'[^\w\s-]', '', title).strip()[:30]
-                safe_title = safe_title.replace(' ', '_')
-                output_file = f"{output_dir}/clip_{i}_{safe_title}.mp4"
-                
-                print(f"Creating clip {i}: {start}s to {end}s - {title}")
-                
-                subclip = video.subclip(start, end)
-                subclip.write_videofile(
-                    output_file, 
-                    codec='libx264', 
-                    audio_codec='aac', 
-                    logger=None,
-                    preset='ultrafast'
-                )
-                subclip.close()
-                
-                generated_clips.append({
+                subprocess.run(cmd, check=True, capture_output=True)
+                clips.append({
                     'file': output_file,
                     'title': title,
-                    'reason': clip.get('reason', '')
+                    'reason': reason
                 })
-                
-            except Exception as e:
+            except subprocess.CalledProcessError as e:
                 print(f"Error creating clip {i}: {e}")
                 continue
-            
+        
+        return clips
+        
     except json.JSONDecodeError as e:
-        print(f"JSON parsing error: {e}")
-        print(f"Raw data: {clips_data[:200]}")
+        print(f"JSON parse error: {e}")
+        return []
     except Exception as e:
         print(f"Error cutting video: {e}")
-    finally:
-        video.close()
-    
-    return generated_clips
+        return []

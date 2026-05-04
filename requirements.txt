@@ -3,6 +3,4 @@ google-generativeai
 groq
 yt-dlp
 python-dotenv
-imageio-ffmpeg
-imageio
-moviepy
+ffmpeg-python
