@@ -4,3 +4,5 @@ groq
 yt-dlp
 python-dotenv
 ffmpeg-python
+google-generativeai
+groq
