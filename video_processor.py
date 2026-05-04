@@ -4,6 +4,30 @@ import json
 import re
 import subprocess
 
+
+def create_demo_video():
+    """Create a 5-minute demo video"""
+    output_path = 'temp/video.mp4'
+    
+    # Use ./ffmpeg if exists, otherwise system ffmpeg
+    ffmpeg_cmd = './ffmpeg' if os.path.exists('./ffmpeg') else 'ffmpeg'
+    
+    # Create a simple test video
+    cmd = [
+        ffmpeg_cmd, '-y',
+        '-f', 'lavfi',
+        '-i', 'color=c=blue:s=1280x720:d=300',
+        '-f', 'lavfi',
+        '-i', 'anullsrc=r=44100:cl=stereo',
+        '-t', '300',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-preset', 'ultrafast',
+        output_path
+    ]
+    
+    subprocess.run(cmd, check=True, capture_output=True)
+    return output_path
 def download_video(url):
     """Download video from YouTube with bot protection bypass"""
     ydl_opts = {
