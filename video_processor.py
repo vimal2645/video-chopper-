@@ -5,33 +5,74 @@ import re
 import subprocess
 
 def download_video(url):
-    """Download video from YouTube"""
+    """Download video from YouTube with bot protection bypass"""
     ydl_opts = {
-        'format': 'best[ext=mp4]',
+        'format': 'best[ext=mp4]/best',
         'outtmpl': 'temp/video.%(ext)s',
         'quiet': True,
+        'no_warnings': True,
+        'extract_flat': False,
+        # Add headers to avoid bot detection
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        },
+        # Bypass age restriction and bot checks
+        'age_limit': None,
+        'extractor_args': {
+            'youtube': {
+                'skip': ['dash', 'hls'],
+                'player_client': ['android', 'web']
+            }
+        }
     }
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        video_path = 'temp/video.mp4'
-        title = info.get('title', 'video')
-        duration = info.get('duration', 0)
-        
-    return video_path, title, duration
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            video_path = 'temp/video.mp4'
+            
+            # Handle downloaded file extension
+            if not os.path.exists(video_path):
+                # Find the actual downloaded file
+                for file in os.listdir('temp'):
+                    if file.startswith('video.'):
+                        os.rename(f'temp/{file}', video_path)
+                        break
+            
+            title = info.get('title', 'video')
+            duration = info.get('duration', 0)
+            
+        return video_path, title, duration
+    except Exception as e:
+        raise Exception(f"Failed to download video: {str(e)}")
 
 def get_transcript(url):
     """Get video description"""
     ydl_opts = {
         'skip_download': True,
         'quiet': True,
+        'no_warnings': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        }
     }
     
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        description = info.get('description', 'No description')
-        title = info.get('title', '')
-        return f"Title: {title}\n\nDescription: {description[:1000]}"
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            description = info.get('description', 'No description')
+            title = info.get('title', '')
+            return f"Title: {title}\n\nDescription: {description[:1000]}"
+    except Exception as e:
+        return f"Title: Video\n\nDescription: Could not fetch description. Error: {str(e)}"
 
 def cut_video(video_path, clips_data):
     """Cut video into clips using ffmpeg"""
